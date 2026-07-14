@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
+import { prisma } from "@/lib/db/client";
 import { getPool } from "@/lib/pools";
 import { NotFoundError } from "@/lib/errors";
 import { deletePoolAction, leavePoolAction, removeMemberAction } from "@/app/actions/pools";
@@ -8,6 +9,7 @@ import { JoinForm } from "./join-form";
 import { TeamNameForm } from "./team-name-form";
 import { EditRulesForm } from "./edit-rules-form";
 import { ConfirmButton } from "./confirm-button";
+import { SyncFieldButton } from "./sync-field-button";
 
 function toDatetimeLocalValue(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -28,6 +30,11 @@ export default async function PoolDetailPage({ params }: { params: Promise<{ poo
 
   const isOwner = pool.ownerId === user.id;
   const membership = pool.members.find((m) => m.userId === user.id);
+
+  const fieldCount = await prisma.golfer.count({ where: { tournamentId: pool.tournamentId } });
+  const myPickCount = membership
+    ? await prisma.roster.count({ where: { poolMemberId: membership.id } })
+    : 0;
 
   return (
     <div className="mx-auto w-full max-w-3xl flex-1 px-6 py-10">
@@ -104,6 +111,12 @@ export default async function PoolDetailPage({ params }: { params: Promise<{ poo
         <section className="mb-8 space-y-4">
           <h2 className="text-sm font-semibold">Your team</h2>
           <TeamNameForm poolId={pool.id} currentTeamName={membership.teamName} />
+          <Link
+            href={`/pools/${pool.id}/roster`}
+            className="inline-flex items-center gap-2 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            Your picks ({myPickCount}/{pool.rosterSize})
+          </Link>
           {!isOwner ? (
             <ConfirmButton
               action={leavePoolAction.bind(null, pool.id)}
@@ -124,6 +137,20 @@ export default async function PoolDetailPage({ params }: { params: Promise<{ poo
           This pool isn&apos;t open for new members right now.
         </p>
       )}
+
+      {isOwner ? (
+        <section className="mb-8 space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+          <div>
+            <h2 className="text-sm font-semibold">Tournament field</h2>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              {fieldCount > 0
+                ? `${fieldCount} golfers in the field.`
+                : "No golfers ingested yet — sync the field so members can make picks."}
+            </p>
+          </div>
+          <SyncFieldButton poolId={pool.id} />
+        </section>
+      ) : null}
 
       {isOwner ? (
         <EditRulesForm

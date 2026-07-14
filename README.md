@@ -47,14 +47,16 @@ Open [http://localhost:3000](http://localhost:3000) — you'll land on
 ```
 src/
   app/                  # Next.js routes, server actions, and UI
-    actions/            # Server actions (auth, pools)
-    login/, pools/       # Pages
+    actions/            # Server actions (auth, pools, roster)
+    login/, pools/       # Pages (incl. pools/[poolId]/roster pick page)
   lib/
     auth/               # Dev-auth session cookie helpers
     db/                 # Prisma client singletons (app + test)
     scoring/            # Pure, unit-tested scoring engine (countBestN, cut handling, standings)
     data-adapter/        # Provider-agnostic live-score interface + mock provider
+    tournaments/        # Field ingestion (provider field -> Golfer rows)
     pools/              # Pool CRUD + membership service layer (integration-tested)
+    roster/             # Roster/pick service (free pick, lock + rosterSize enforcement)
 prisma/
   schema.prisma         # Data model
   seed.ts               # Seeds a mock tournament + golfers for local dev
@@ -68,6 +70,16 @@ live-score provider. `computeTeamScore` reduces a roster's per-golfer
 results to a team total under a pool's `countBestN` and cut-penalty rules;
 `computeStandings` ranks teams and breaks ties by best single counted
 golfer.
+
+## Rosters & the tournament field
+
+A pool is attached to a tournament; the commissioner syncs its field
+(`Sync tournament field` on the pool page → `ingestField`, which upserts
+`Golfer` rows from the data provider). Members then draft golfers on the
+pick page (`/pools/[poolId]/roster`) up to the pool's roster size — free
+pick, no draft order. Picks lock once the deadline passes or the pool
+moves past its pre-tournament phase, enforced in the service layer, not
+just the UI.
 
 ## Live score data
 

@@ -87,6 +87,41 @@ chosen. When integrating a live provider (RapidAPI or similar):
 Poll live provider on a timer (60-120s during live rounds) rather than
 per-request; cache aggressively. This isn't built yet.
 
+## Field ingestion — `src/lib/tournaments`
+
+`ingestField(tournamentId, provider, db)` pulls a tournament's field from a
+`GolfDataProvider` and upserts `Golfer` rows keyed on
+`(tournamentId, externalId)`. Idempotent — re-running updates name/worldRank
+and adds newcomers, returning `{ created, updated, total }`. It's the single
+place that turns provider field data into `Golfer` rows: both `prisma/seed.ts`
+and the commissioner "sync field" server action (`syncFieldAction`) go through
+it. The tournament must already exist and have an `externalId`; ingestion
+throws rather than inventing one. `syncFieldAction` is currently hard-wired to
+`MockGolfDataProvider` — that's the one call site to change when a live
+provider lands.
+
+## Rosters / picks — `src/lib/roster`
+
+`getRoster`, `addPick`, `removePick` — same DI/integration-test pattern as
+`src/lib/pools`. Currently **free pick only**: a member adds any golfer in the
+tournament field up to `rosterSize`. Snake draft, salary cap, and tiered
+selection from the build plan are deliberately not built — don't add them
+until a milestone actually calls for one (the schema has no salary/tier
+columns yet either).
+
+Pick rules, all enforced server-side (not just in the UI, so a stale page
+can't cheat):
+
+- `isPicksLocked(pool)` is the lock gate: true if the pool status is
+  `LOCKED`/`LIVE`/`COMPLETE`, or `lockAt` has passed. `addPick`/`removePick`
+  both refuse once locked. This is exported and reused by the roster page to
+  render read-only.
+- A pick must be a golfer in the pool's own tournament (`ValidationError`
+  otherwise), can't exceed `rosterSize` (`ConflictError`), and can't be a
+  duplicate (unique `(poolMemberId, golferId)` → `ConflictError`).
+- The roster page (`/pools/[poolId]/roster`) is member-only; non-members are
+  redirected back to the pool page.
+
 ## Pool CRUD + membership — `src/lib/pools`
 
 `pools.ts` (createPool, getPool, listPoolsForUser, updatePoolRules,
@@ -141,8 +176,9 @@ the previous one is real and tested, not stubbed:
 
 1. Repo scaffold, DB schema, auth (dev-auth stub), deploy skeleton (deploy still pending)
 2. Pool CRUD + membership + rules config (done)
-3. Golfer field ingestion + roster/pick page with lock
-4. Scoring engine (done) wired to a mock/static tournament end-to-end
+3. Golfer field ingestion + roster/pick page with lock (done, free-pick only)
+4. Scoring engine (done) wired to a mock/static tournament end-to-end (next: the
+   scoring engine and roster data both exist but aren't joined into a leaderboard yet)
 5. Live data adapter (real provider) + polling → real leaderboard
 6. Standings, tiebreakers, commissioner admin tools
 7. Polish: notifications, mobile layout, payments (optional)
