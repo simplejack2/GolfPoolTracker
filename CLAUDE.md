@@ -10,7 +10,10 @@ live during tournaments.
 - Prisma ORM against PostgreSQL (`prisma/schema.prisma`)
 - Vitest for unit tests
 - Auth is a placeholder dev-auth stub (`src/lib/auth/session.ts`), not real
-  auth — see "Auth" below. Hosting isn't wired up yet (candidate: Vercel).
+  auth — see "Auth" below. Hosting: Vercel + a hosted Postgres (Neon or
+  Supabase) — see "Deploying" in README.md. This is a server app (Server
+  Actions, per-request DB queries) and cannot run on a static host like
+  GitHub Pages.
 
 ## Auth — `src/lib/auth`, `src/app/login`, `src/app/actions/auth.ts`
 
@@ -268,7 +271,9 @@ adding another bare-reference `<form>`.
 Follow this sequence rather than jumping ahead — each milestone assumes
 the previous one is real and tested, not stubbed:
 
-1. Repo scaffold, DB schema, auth (dev-auth stub), deploy skeleton (deploy still pending)
+1. Repo scaffold, DB schema, auth (dev-auth stub), deploy skeleton (done —
+   `vercel-build` script runs `prisma migrate deploy` before `next build`;
+   see "Deploying" in README.md)
 2. Pool CRUD + membership + rules config (done)
 3. Golfer field ingestion + roster/pick page with lock (done, free-pick only)
 4. Scoring engine wired to a mock/static tournament end-to-end (done — see

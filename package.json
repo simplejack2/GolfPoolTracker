@@ -9,7 +9,9 @@
     "lint": "eslint",
     "test": "vitest run",
     "tournament:add": "tsx scripts/add-tournament.ts",
-    "poll": "tsx scripts/poll-live-scores.ts"
+    "poll": "tsx scripts/poll-live-scores.ts",
+    "postinstall": "prisma generate",
+    "vercel-build": "prisma migrate deploy && next build"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

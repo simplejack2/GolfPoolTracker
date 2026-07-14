@@ -128,3 +128,43 @@ writing one new class — pool/scoring logic never changes.
 every tournament backing a `LOCKED` or `LIVE` pool. It's a plain script
 rather than a platform cron job since hosting isn't decided yet — run it
 under whatever process manager the eventual deploy target uses.
+
+## Deploying
+
+This is a full Next.js server app (Server Actions, cookies, live Postgres
+queries on every page) — it cannot run on a static host like GitHub
+Pages. It needs a platform that runs Node.js and can reach a Postgres
+database. Vercel (built by the Next.js team) + a hosted Postgres (Neon or
+Supabase both have a free tier) is the path of least resistance:
+
+1. **Database**: create a Postgres database on [Neon](https://neon.tech)
+   or [Supabase](https://supabase.com). Copy its connection string.
+2. **Vercel project**: at [vercel.com](https://vercel.com), "Add New
+   Project" → import this GitHub repo. Vercel auto-detects Next.js; no
+   `vercel.json` needed.
+3. **Environment variables** (Vercel project settings → Environment
+   Variables): set `DATABASE_URL` to the hosted connection string from
+   step 1, and `RAPIDAPI_KEY` if you want live scores instead of the mock
+   provider. Don't set `TEST_DATABASE_URL` in production.
+4. **Build**: `package.json` has a `vercel-build` script
+   (`prisma migrate deploy && next build`) — Vercel runs this
+   automatically instead of `build` when it's present, so every deploy
+   applies pending migrations to the production database before
+   building. No separate migration step needed.
+5. **Deploy** — Vercel builds and gives you a URL.
+6. **Seed data** (optional, once): from your own machine, point at the
+   production database and run `prisma db seed` and/or
+   `tournament:add`:
+   ```bash
+   DATABASE_URL="<your-neon-or-supabase-url>" npx prisma db seed
+   DATABASE_URL="<your-neon-or-supabase-url>" RAPIDAPI_KEY="<key>" npm run tournament:add -- 2026
+   ```
+
+Worth knowing before sharing the URL: sign-in is still the dev-auth stub
+(any email, no password — see "Auth" in `CLAUDE.md`), so anyone with the
+link can create an account and use the app. That's fine for a private
+pool among friends but isn't real access control. Also, `RAPIDAPI_KEY`
+has a request quota on the free tier — deploying doesn't add polling by
+itself (`npm run poll` still has to be run somewhere, e.g. as a Vercel
+Cron Job or a separate always-on worker), but every "Sync scores" click
+by anyone with commissioner access does count against it.
