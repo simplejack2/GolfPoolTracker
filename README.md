@@ -30,6 +30,11 @@ Open [http://localhost:3000](http://localhost:3000) — you'll land on
 `/login`. Sign-in is a dev-only stub: any email works, no password (see
 "Auth" in `CLAUDE.md`).
 
+To use real tournament data instead of the mock, add `RAPIDAPI_KEY` (a
+[Live Golf Data](https://rapidapi.com/slashgolf/api/live-golf-data) key)
+to `.env`, then `npm run tournament:add -- <year>` to list that season's
+tournaments and `npm run tournament:add -- <year> <tournId>` to add one.
+
 ## Scripts
 
 | Command | Purpose |
@@ -41,6 +46,8 @@ Open [http://localhost:3000](http://localhost:3000) — you'll land on
 | `npx prisma studio` | Browse the database |
 | `npx prisma migrate dev` | Apply schema changes to your dev database |
 | `npx prisma db seed` | Seed a mock tournament + golfers |
+| `npm run tournament:add -- <year> [tournId]` | List a season's schedule, or add a real tournament |
+| `npm run poll` | Long-running loop syncing scores for LOCKED/LIVE pools |
 
 ## Project layout
 
@@ -61,6 +68,9 @@ src/
 prisma/
   schema.prisma         # Data model
   seed.ts               # Seeds a mock tournament + golfers for local dev
+scripts/
+  add-tournament.ts     # Onboards a real tournament (no schedule-browsing UI yet)
+  poll-live-scores.ts   # Long-running score poller for LOCKED/LIVE pools
 ```
 
 ## Scoring engine
@@ -84,21 +94,37 @@ just the UI.
 
 ## Leaderboard
 
-The commissioner clicks "Sync scores" on the pool page to pull current
-scores from the data provider (`ingestScores`) into `GolferScore` rows.
-The leaderboard page (`/pools/[poolId]/leaderboard`) then joins each
-team's roster with their golfers' latest scores, runs it through the
-scoring engine, and shows a ranked table with an expandable per-golfer
-breakdown — cut/WD/DQ golfers show their real score struck through and
-excluded (or penalized, under `FIXED` mode) rather than disappearing.
-There's no auto-refresh or polling yet; the leaderboard reflects whatever
-was last synced.
+The commissioner clicks "Sync scores" on the pool page (or the poller
+below does it automatically) to pull current scores from the data
+provider (`ingestScores`) into `GolferScore` rows. The leaderboard page
+(`/pools/[poolId]/leaderboard`) then joins each team's roster with their
+golfers' latest scores, runs it through the scoring engine, and shows a
+ranked table with an expandable per-golfer breakdown — cut/WD/DQ golfers
+show their real score struck through and excluded (or penalized, under
+`FIXED` mode) rather than disappearing. The leaderboard page itself
+doesn't auto-refresh in the browser; reload to see a newer sync.
 
 ## Live score data
 
-No live provider is wired up yet. `src/lib/data-adapter` defines the
-`GolfDataProvider` interface every provider (RapidAPI, etc.) must
-implement, plus a `MockGolfDataProvider` with static fixture data so the
-rest of the app can be built and tested before a provider is chosen.
-Swapping providers later means writing one new class against that
-interface — pool/scoring logic never changes.
+`src/lib/data-adapter` defines the `GolfDataProvider` interface every
+provider must implement (`getField`, `getScores`), plus:
+
+- `MockGolfDataProvider` — static fixture data, used when `RAPIDAPI_KEY`
+  isn't set (local dev, tests).
+- `RapidApiGolfProvider` — the live provider, targeting RapidAPI's
+  ["Live Golf Data"](https://rapidapi.com/slashgolf/api/live-golf-data)
+  (Slash Golf) API. Since that API needs both a `tournId` and a `year` to
+  identify a tournament, a `Tournament.externalId` for this provider is
+  the composite `"{year}:{tournId}"` (e.g. `"2025:006"`) — see
+  `scripts/add-tournament.ts` for onboarding one.
+
+`getDefaultGolfDataProvider()` picks between them based on whether
+`RAPIDAPI_KEY` is set; sync actions and the polling script call that
+rather than hard-coding a provider, so swapping providers later means
+writing one new class — pool/scoring logic never changes.
+
+`npm run poll` runs `scripts/poll-live-scores.ts`, a long-running loop
+(interval `POLL_INTERVAL_SECONDS`, default 90s) that syncs scores for
+every tournament backing a `LOCKED` or `LIVE` pool. It's a plain script
+rather than a platform cron job since hosting isn't decided yet — run it
+under whatever process manager the eventual deploy target uses.

@@ -73,20 +73,76 @@ standings.
 `GolfDataProvider` is the interface (`getField`, `getScores`) every score
 source must implement, returning data normalized to `TournamentField` /
 `LiveRoundScore`. `MockGolfDataProvider` is a static in-memory
-implementation for development and tests before a real provider is
-chosen. When integrating a live provider (RapidAPI or similar):
+implementation for development and tests. `RapidApiGolfProvider` is the
+live provider — see below. `getDefaultGolfDataProvider()`
+(`default-provider.ts`) is what consumers actually call: it returns
+`RapidApiGolfProvider` when `RAPIDAPI_KEY` is set, else falls back to the
+mock, so local dev/tests never need a key.
+
+If integrating a *different* live provider later:
 
 1. Implement `GolfDataProvider` in a new file in this directory.
 2. Do not change the interface shape to fit one provider's quirks — map
    the provider's raw response onto the existing normalized types inside
    the new class.
 3. Nothing outside `data-adapter` should import a specific provider
-   directly; consumers depend on the `GolfDataProvider` interface so the
-   provider can be swapped later without touching pool/scoring code.
+   directly; consumers depend on the `GolfDataProvider` interface (via
+   `getDefaultGolfDataProvider()`) so the provider can be swapped without
+   touching pool/scoring code.
 
-Poll live provider on a timer (60-120s during live rounds) rather than
-per-request; cache aggressively. This isn't built yet — right now scores
-only move when the commissioner clicks "Sync scores" (see below).
+### RapidApiGolfProvider (Slash Golf "Live Golf Data")
+
+Targets `live-golf-data.p.rapidapi.com` — endpoints `/tournament` (field)
+and `/leaderboard` (scores). Schema mapping was built from the
+maintainer's own OpenAPI spec
+(`github.com/slashgolf/slashgolf/blob/main/docs/openapi.yaml`), not
+scraped docs; the spec is the ground truth if the two ever disagree with
+what the live API actually returns.
+
+Things worth knowing before touching this file:
+
+- **Composite externalId.** This API needs both `tournId` and `year` to
+  identify a tournament, but `GolfDataProvider.getField`/`getScores` take
+  one externalId string (see convention #2 above — don't change the
+  interface for this). So a `Tournament.externalId` for this provider is
+  `"{year}:{tournId}"` (e.g. `"2025:006"`), parsed apart inside
+  `parseExternalId()` and never exposed outside this file. The mock
+  provider's externalId (`"mock-2026-classic"`) has no colon and is
+  never routed through this class, so there's no collision.
+- **`getScores` returns one row per golfer per call**, tagged with the
+  leaderboard response's top-level `roundId` (the round currently being
+  tracked) and `total` as the cumulative tournament-to-par — matching
+  what `ingestScores`'s `(golferId, round)` upsert and the leaderboard's
+  "latest round" lookup both expect. It does not walk each golfer's
+  historical `rounds[]` into separate rows; that data exists in the raw
+  response but nothing in this app uses per-round history yet.
+- `total`/`scoreToPar` come back as strings ("E", "+3", "-5", or "--" for
+  not-yet-started) — `parseToPar()` handles that; don't assume they're
+  numeric.
+- Provider status values (`active`/`complete`/`cut`/`wd`/`dq`) map to our
+  `GolferStatus`; both `active` and `complete` (finished today's round,
+  still competing) map to `ACTIVE` — `mapStatus()`.
+- Rate limits (`429`) surface as a thrown error from `request()`, not a
+  silent empty result — a poll iteration that fails logs and moves on
+  (see the polling script) rather than crashing the process.
+
+### Onboarding a real tournament
+
+There's no schedule-browsing UI. `npx tsx scripts/add-tournament.ts <year>`
+lists that season's tournaments (tournId + name + dates); re-run with a
+`tournId` to upsert the `Tournament` row (externalId `"{year}:{tournId}"`)
+and ingest its field in one step. Requires `RAPIDAPI_KEY`. Pick that
+tournament in the pool-creation form afterward.
+
+### Polling
+
+`scripts/poll-live-scores.ts` is a long-running loop (`npm run poll`,
+interval `POLL_INTERVAL_SECONDS`, default 90) that calls `ingestScores`
+for every tournament backing a `LOCKED` or `LIVE` pool. It's a plain
+script, not a platform cron job, because the deploy platform isn't
+decided yet (build order milestone 1) — run it under whatever process
+manager the eventual host uses. Without `RAPIDAPI_KEY` it polls the mock
+provider harmlessly (nothing changes, since the mock's data is static).
 
 ## Field & score ingestion — `src/lib/tournaments`
 
@@ -94,19 +150,19 @@ only move when the commissioner clicks "Sync scores" (see below).
 `GolfDataProvider` and upserts `Golfer` rows keyed on
 `(tournamentId, externalId)`. Idempotent — re-running updates name/worldRank
 and adds newcomers, returning `{ created, updated, total }`. It's the single
-place that turns provider field data into `Golfer` rows: both `prisma/seed.ts`
-and the commissioner "sync field" server action (`syncFieldAction`) go through
-it. The tournament must already exist and have an `externalId`; ingestion
-throws rather than inventing one. `syncFieldAction` is currently hard-wired to
-`MockGolfDataProvider` — that's the one call site to change when a live
-provider lands.
+place that turns provider field data into `Golfer` rows: `prisma/seed.ts`,
+`scripts/add-tournament.ts`, and the commissioner "sync field" server action
+(`syncFieldAction`) all go through it. The tournament must already exist and
+have an `externalId`; ingestion throws rather than inventing one.
+`syncFieldAction`/`syncScoresAction` both call `getDefaultGolfDataProvider()`
+(see "Live score data" below) rather than a hard-coded provider.
 
 `ingestScores(tournamentId, provider, db)` is the same pattern for scores:
 upserts `GolferScore` rows keyed on `(golferId, round)` so re-syncing the
 same round updates in place rather than duplicating. A provider row whose
 golfer isn't in the field yet is skipped (not an error) — sync the field
-first. `syncScoresAction` is the commissioner-only entry point, also
-hard-wired to `MockGolfDataProvider` for now.
+first. `syncScoresAction` is the commissioner-only entry point; the polling
+script (below) is the automated one.
 
 ## Rosters / picks — `src/lib/roster`
 
@@ -216,11 +272,10 @@ the previous one is real and tested, not stubbed:
 2. Pool CRUD + membership + rules config (done)
 3. Golfer field ingestion + roster/pick page with lock (done, free-pick only)
 4. Scoring engine wired to a mock/static tournament end-to-end (done — see
-   "Leaderboard" above; scores only move via the commissioner's manual
-   "Sync scores" button, no live polling yet)
-5. Live data adapter (real provider) + polling → real leaderboard (next —
-   the leaderboard itself is done; this milestone is about replacing
-   `MockGolfDataProvider` and adding a polling loop, not building new UI)
+   "Leaderboard" above)
+5. Live data adapter (RapidAPI's Slash Golf "Live Golf Data") + polling
+   script → real leaderboard (done — see "RapidApiGolfProvider", "Polling"
+   above; no schedule-browsing UI, use `scripts/add-tournament.ts`)
 6. Standings, tiebreakers, commissioner admin tools (tiebreaker — best
    single counted golfer — is already done in `computeStandings`; a
    dedicated commissioner admin view for score overrides is not built)

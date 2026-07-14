@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "tournament:add": "tsx scripts/add-tournament.ts",
+    "poll": "tsx scripts/poll-live-scores.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

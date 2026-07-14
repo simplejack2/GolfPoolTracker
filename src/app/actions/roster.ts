@@ -7,7 +7,7 @@ import { ForbiddenError, knownErrorMessage } from "@/lib/errors";
 import { addPick, removePick } from "@/lib/roster";
 import { ingestField, ingestScores } from "@/lib/tournaments";
 import { getPool } from "@/lib/pools";
-import { MockGolfDataProvider } from "@/lib/data-adapter";
+import { getDefaultGolfDataProvider } from "@/lib/data-adapter";
 
 type ActionResult = { error?: string; message?: string };
 
@@ -41,9 +41,8 @@ export async function removePickAction(poolId: string, golferId: string): Promis
 
 /**
  * Commissioner-only: pull the tournament field from the data provider and
- * upsert Golfer rows. Currently hard-wired to the mock provider — when a
- * live provider lands, this is the one call site to swap (or route through
- * a provider registry).
+ * upsert Golfer rows. Uses the live RapidAPI provider when RAPIDAPI_KEY is
+ * set, otherwise the mock provider (see getDefaultGolfDataProvider).
  */
 export async function syncFieldAction(poolId: string): Promise<ActionResult> {
   const userId = await getCurrentUserId();
@@ -55,7 +54,7 @@ export async function syncFieldAction(poolId: string): Promise<ActionResult> {
       throw new ForbiddenError("Only the pool owner can sync the field");
     }
 
-    const result = await ingestField(pool.tournamentId, new MockGolfDataProvider());
+    const result = await ingestField(pool.tournamentId, getDefaultGolfDataProvider());
     revalidatePath(`/pools/${poolId}`);
     revalidatePath(`/pools/${poolId}/roster`);
     return {
@@ -68,7 +67,7 @@ export async function syncFieldAction(poolId: string): Promise<ActionResult> {
 
 /**
  * Commissioner-only: pull current scores from the data provider and
- * upsert GolferScore rows. Same mock-provider caveat as syncFieldAction.
+ * upsert GolferScore rows. Same provider selection as syncFieldAction.
  */
 export async function syncScoresAction(poolId: string): Promise<ActionResult> {
   const userId = await getCurrentUserId();
@@ -80,7 +79,7 @@ export async function syncScoresAction(poolId: string): Promise<ActionResult> {
       throw new ForbiddenError("Only the pool owner can sync scores");
     }
 
-    const result = await ingestScores(pool.tournamentId, new MockGolfDataProvider());
+    const result = await ingestScores(pool.tournamentId, getDefaultGolfDataProvider());
     revalidatePath(`/pools/${poolId}`);
     revalidatePath(`/pools/${poolId}/leaderboard`);
     const skippedNote = result.skipped > 0 ? ` (${result.skipped} skipped — sync the field first)` : "";
