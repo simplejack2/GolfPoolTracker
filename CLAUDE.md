@@ -9,8 +9,30 @@ live during tournaments.
 - Next.js (App Router), TypeScript, Tailwind CSS
 - Prisma ORM against PostgreSQL (`prisma/schema.prisma`)
 - Vitest for unit tests
-- Auth and hosting are not wired up yet (candidates: Supabase Auth/Clerk;
-  Vercel) — decide when building the auth/deploy milestone, not before.
+- Auth is a placeholder dev-auth stub (`src/lib/auth/session.ts`), not real
+  auth — see "Auth" below. Hosting isn't wired up yet (candidate: Vercel).
+
+## Auth — `src/lib/auth`, `src/app/login`, `src/app/actions/auth.ts`
+
+Email-only sign-in, no password: `devLogin` upserts a `User` by email and
+stores the user id directly in an httpOnly cookie (`session.ts`). Good
+enough to build and test pool membership against a real "current user."
+Replace with Supabase Auth/Clerk by swapping `session.ts` and the login
+page/action — nothing else reads the cookie directly, everything else
+goes through `getCurrentUser()`/`getCurrentUserId()`.
+
+## Local dev database
+
+Postgres must be running locally (`pg_ctlcluster 16 main start` or your
+platform's equivalent). Two databases: `golfpooltracker` (dev,
+`DATABASE_URL`) and `golfpooltracker_test` (integration tests,
+`TEST_DATABASE_URL`) — see `.env.example`. After schema changes:
+`npx prisma migrate dev` (dev DB, generates a migration) then
+`npx prisma migrate deploy` with `TEST_DATABASE_URL` set (test DB, no new
+migration). `npx prisma db seed` upserts a mock tournament + golfers
+(from `MockGolfDataProvider`) into whichever DB `DATABASE_URL` points at
+— pools need a `tournamentId` to attach to, so run this before creating
+pools locally.
 
 ## Data model (`prisma/schema.prisma`)
 
@@ -65,13 +87,60 @@ chosen. When integrating a live provider (RapidAPI or similar):
 Poll live provider on a timer (60-120s during live rounds) rather than
 per-request; cache aggressively. This isn't built yet.
 
+## Pool CRUD + membership — `src/lib/pools`
+
+`pools.ts` (createPool, getPool, listPoolsForUser, updatePoolRules,
+deletePool) and `membership.ts` (joinPool, leavePool, removeMember,
+updateMemberTeamName, listPoolMembers) are Prisma-backed but
+framework-agnostic — every function takes a `PrismaClient` as its last
+param, defaulting to the shared singleton, so tests can pass
+`createTestPrismaClient()` (`src/lib/db/test-client.ts`) instead. This is
+also why they're integration-tested against a real local Postgres test DB
+rather than unit-tested with a mock — Prisma's unique constraints,
+cascades, and compound keys aren't worth re-implementing in a fake.
+
+Rules worth knowing before changing this code:
+
+- Creating a pool auto-joins the owner as a `PoolMember` (so the
+  commissioner always has a team).
+- `countBestN <= rosterSize` is enforced in `updatePoolRules` against the
+  *merged* state (existing pool row + partial update), not just the
+  fields present in a given update — a partial update that only touches
+  `rosterSize` must still fail if it would leave the existing
+  `countBestN` too high. Don't move this check back into the zod schema;
+  a schema only sees the partial input, not the row it's merging into.
+- `joinPool` requires `status === "OPEN"` and `lockAt` in the future;
+  both are checked at join time, not just enforced by UI.
+- The pool owner can't leave or be removed via `leavePool`/`removeMember`
+  — only `deletePool` (which cascades members/rosters/standings via the
+  schema's `onDelete: Cascade`) gets rid of an owner's pool.
+
+## Server Actions gotcha (Next.js 16 / Turbopack)
+
+Do not mix a bare `<form action={someServerFunction}>` (a direct function
+reference, no `useActionState`) with `useActionState`-driven forms in the
+same layout tree. In this app, `SiteHeader`'s old plain `<form
+action={logout}>` — rendered on every page since it's in the root layout
+— caused a *different* form's `next-action` request header to resolve to
+`logout`'s action id instead of its own, silently logging the user out
+instead of running the intended mutation (e.g. `createPoolAction`). This
+reproduced in a production build (`next build && next start`), not just
+dev/HMR, so it isn't a Fast Refresh artifact. The fix: call the server
+action directly from a client `onClick` handler (see
+`src/app/logout-button.tsx`, `src/app/pools/[poolId]/confirm-button.tsx`)
+instead of wiring it through a `<form action={...}>`. Keep all
+non-trivial mutations going through `useActionState` forms (for pending
+state and inline errors); for simple fire-and-confirm actions (delete,
+leave, remove), call the bound server action from `onClick` rather than
+adding another bare-reference `<form>`.
+
 ## Build order
 
 Follow this sequence rather than jumping ahead — each milestone assumes
 the previous one is real and tested, not stubbed:
 
-1. Repo scaffold, DB schema, auth, deploy skeleton (in progress)
-2. Pool CRUD + membership + rules config
+1. Repo scaffold, DB schema, auth (dev-auth stub), deploy skeleton (deploy still pending)
+2. Pool CRUD + membership + rules config (done)
 3. Golfer field ingestion + roster/pick page with lock
 4. Scoring engine (done) wired to a mock/static tournament end-to-end
 5. Live data adapter (real provider) + polling → real leaderboard

@@ -14,14 +14,21 @@ See [`CLAUDE.md`](./CLAUDE.md) for the full product/architecture spec.
 
 ## Getting started
 
+Requires a local PostgreSQL server with two databases: one for the app,
+one for integration tests.
+
 ```bash
 npm install
-cp .env.example .env   # fill in DATABASE_URL
-npx prisma generate
+cp .env.example .env   # fill in DATABASE_URL and TEST_DATABASE_URL
+npx prisma migrate dev              # creates/updates the dev DB schema
+DATABASE_URL="$TEST_DATABASE_URL" npx prisma migrate deploy  # test DB schema
+npx prisma db seed                  # adds a mock tournament + golfers
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000) — you'll land on
+`/login`. Sign-in is a dev-only stub: any email works, no password (see
+"Auth" in `CLAUDE.md`).
 
 ## Scripts
 
@@ -30,21 +37,27 @@ Open [http://localhost:3000](http://localhost:3000).
 | `npm run dev` | Start the dev server |
 | `npm run build` | Production build |
 | `npm run lint` | ESLint |
-| `npm run test` | Run the unit test suite (Vitest) |
+| `npm run test` | Run the unit + integration test suite (Vitest) |
 | `npx prisma studio` | Browse the database |
 | `npx prisma migrate dev` | Apply schema changes to your dev database |
+| `npx prisma db seed` | Seed a mock tournament + golfers |
 
 ## Project layout
 
 ```
 src/
-  app/                  # Next.js routes
+  app/                  # Next.js routes, server actions, and UI
+    actions/            # Server actions (auth, pools)
+    login/, pools/       # Pages
   lib/
-    db/                 # Prisma client singleton
+    auth/               # Dev-auth session cookie helpers
+    db/                 # Prisma client singletons (app + test)
     scoring/            # Pure, unit-tested scoring engine (countBestN, cut handling, standings)
     data-adapter/        # Provider-agnostic live-score interface + mock provider
+    pools/              # Pool CRUD + membership service layer (integration-tested)
 prisma/
   schema.prisma         # Data model
+  seed.ts               # Seeds a mock tournament + golfers for local dev
 ```
 
 ## Scoring engine
