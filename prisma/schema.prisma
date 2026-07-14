@@ -1,0 +1,156 @@
+// Golf Pool Tracker data model.
+// See CLAUDE.md for the rules these tables implement (roster limits,
+// countBestN scoring, cut/WD handling).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum ScoringMode {
+  STROKE_PLAY
+  STABLEFORD
+}
+
+enum PoolStatus {
+  DRAFT
+  OPEN
+  LOCKED
+  LIVE
+  COMPLETE
+}
+
+enum TournamentStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETE
+}
+
+enum GolferStatus {
+  ACTIVE
+  CUT
+  WD
+  DQ
+}
+
+model User {
+  id          String       @id @default(cuid())
+  email       String       @unique
+  name        String?
+  role        Role         @default(USER)
+  createdAt   DateTime     @default(now())
+  poolsOwned  Pool[]       @relation("PoolOwner")
+  memberships PoolMember[]
+}
+
+model Pool {
+  id           String       @id @default(cuid())
+  name         String
+  ownerId      String
+  owner        User         @relation("PoolOwner", fields: [ownerId], references: [id])
+  tournamentId String
+  tournament   Tournament   @relation(fields: [tournamentId], references: [id])
+  scoringMode  ScoringMode  @default(STROKE_PLAY)
+  countBestN   Int
+  rosterSize   Int
+  lockAt       DateTime
+  buyIn        Decimal?     @db.Decimal(10, 2)
+  status       PoolStatus   @default(DRAFT)
+  createdAt    DateTime     @default(now())
+  members      PoolMember[]
+
+  @@index([tournamentId])
+}
+
+model PoolMember {
+  id       String    @id @default(cuid())
+  poolId   String
+  pool     Pool      @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User      @relation(fields: [userId], references: [id])
+  teamName String
+  paid     Boolean   @default(false)
+  roster   Roster[]
+  standing Standing?
+
+  @@unique([poolId, userId])
+}
+
+model Tournament {
+  id           String           @id @default(cuid())
+  externalId   String?          @unique
+  name         String
+  startDate    DateTime
+  endDate      DateTime
+  status       TournamentStatus @default(SCHEDULED)
+  currentRound Int              @default(0)
+  golfers      Golfer[]
+  pools        Pool[]
+  scores       GolferScore[]
+}
+
+model Golfer {
+  id           String        @id @default(cuid())
+  externalId   String?
+  name         String
+  worldRank    Int?
+  tournamentId String
+  tournament   Tournament    @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  scores       GolferScore[]
+  rosterSpots  Roster[]
+
+  @@unique([tournamentId, externalId])
+}
+
+// One row per golfer per round. `status` reflects the golfer's state as of
+// that round (CUT/WD/DQ) so the scoring engine can apply pool-configured
+// penalty rules without re-deriving status from position strings.
+model GolferScore {
+  id           String       @id @default(cuid())
+  golferId     String
+  golfer       Golfer       @relation(fields: [golferId], references: [id], onDelete: Cascade)
+  tournamentId String
+  tournament   Tournament   @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  round        Int
+  strokes      Int?
+  toPar        Int?
+  thru         Int?
+  position     String?
+  status       GolferStatus @default(ACTIVE)
+  updatedAt    DateTime     @updatedAt
+
+  @@unique([golferId, round])
+  @@index([tournamentId, round])
+}
+
+model Roster {
+  id           String     @id @default(cuid())
+  poolMemberId String
+  poolMember   PoolMember @relation(fields: [poolMemberId], references: [id], onDelete: Cascade)
+  golferId     String
+  golfer       Golfer     @relation(fields: [golferId], references: [id])
+  pickedAt     DateTime   @default(now())
+
+  @@unique([poolMemberId, golferId])
+}
+
+// Cached/computed standing per team, recomputed by the scoring engine
+// whenever new GolferScore rows land. Kept as a table (not derived on
+// every read) so the leaderboard page is a cheap query during live play.
+model Standing {
+  id           String     @id @default(cuid())
+  poolMemberId String     @unique
+  poolMember   PoolMember @relation(fields: [poolMemberId], references: [id], onDelete: Cascade)
+  totalScore   Int
+  rank         Int
+  updatedAt    DateTime   @updatedAt
+}
