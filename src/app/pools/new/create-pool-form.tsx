@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { createPoolAction } from "@/app/actions/pools";
 
 interface Tournament {
@@ -10,6 +10,7 @@ interface Tournament {
 
 export function CreatePoolForm({ tournaments, defaultTeamName }: { tournaments: Tournament[]; defaultTeamName: string }) {
   const [error, formAction, isPending] = useActionState(createPoolAction, undefined);
+  const [cutPenaltyMode, setCutPenaltyMode] = useState<"DROP" | "FIXED">("DROP");
 
   return (
     <form action={formAction} className="space-y-4">
@@ -52,6 +53,32 @@ export function CreatePoolForm({ tournaments, defaultTeamName }: { tournaments: 
         <Field label="Buy-in ($, optional)">
           <input name="buyIn" type="number" min={0} step="0.01" className={inputClasses} />
         </Field>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <Field label="Cut/WD penalty">
+          <select
+            name="cutPenaltyMode"
+            value={cutPenaltyMode}
+            onChange={(e) => setCutPenaltyMode(e.target.value as "DROP" | "FIXED")}
+            className={inputClasses}
+          >
+            <option value="DROP">Drop from scoring</option>
+            <option value="FIXED">Add fixed penalty strokes</option>
+          </select>
+        </Field>
+        {cutPenaltyMode === "FIXED" ? (
+          <Field label="Penalty strokes">
+            <input
+              name="cutPenaltyValue"
+              type="number"
+              min={0}
+              required
+              defaultValue={8}
+              className={inputClasses}
+            />
+          </Field>
+        ) : null}
       </div>
 
       <Field label="Picks lock at">

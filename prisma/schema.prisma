@@ -29,6 +29,11 @@ enum PoolStatus {
   COMPLETE
 }
 
+enum CutPenaltyMode {
+  DROP
+  FIXED
+}
+
 enum TournamentStatus {
   SCHEDULED
   IN_PROGRESS
@@ -62,6 +67,10 @@ model Pool {
   scoringMode  ScoringMode  @default(STROKE_PLAY)
   countBestN   Int
   rosterSize   Int
+  // How a CUT/WD/DQ golfer affects the team total (fed straight into the
+  // scoring engine's CutPenalty union — see src/lib/scoring/types.ts).
+  cutPenaltyMode  CutPenaltyMode @default(DROP)
+  cutPenaltyValue Int?
   lockAt       DateTime
   buyIn        Decimal?     @db.Decimal(10, 2)
   status       PoolStatus   @default(DRAFT)

@@ -79,6 +79,12 @@ export async function updatePoolRules(
     throw new ValidationError("countBestN cannot exceed rosterSize");
   }
 
+  const effectiveCutPenaltyMode = parsed.data.cutPenaltyMode ?? pool.cutPenaltyMode;
+  const effectiveCutPenaltyValue = parsed.data.cutPenaltyValue ?? pool.cutPenaltyValue;
+  if (effectiveCutPenaltyMode === "FIXED" && effectiveCutPenaltyValue === null) {
+    throw new ValidationError("cutPenaltyValue is required when cutPenaltyMode is FIXED");
+  }
+
   return db.pool.update({ where: { id: poolId }, data: parsed.data });
 }
 

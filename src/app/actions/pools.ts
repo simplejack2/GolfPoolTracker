@@ -3,22 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getCurrentUserId } from "@/lib/auth/session";
-import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
+import { knownErrorMessage } from "@/lib/errors";
 import * as pools from "@/lib/pools";
 
 type ActionError = string | undefined;
-
-function knownErrorMessage(error: unknown): string {
-  if (
-    error instanceof ValidationError ||
-    error instanceof ForbiddenError ||
-    error instanceof ConflictError ||
-    error instanceof NotFoundError
-  ) {
-    return error.message;
-  }
-  throw error;
-}
 
 export async function createPoolAction(_prevState: ActionError, formData: FormData): Promise<ActionError> {
   const userId = await getCurrentUserId();
@@ -32,6 +20,8 @@ export async function createPoolAction(_prevState: ActionError, formData: FormDa
       scoringMode: formData.get("scoringMode") || undefined,
       countBestN: formData.get("countBestN"),
       rosterSize: formData.get("rosterSize"),
+      cutPenaltyMode: formData.get("cutPenaltyMode") || undefined,
+      cutPenaltyValue: formData.get("cutPenaltyValue") || undefined,
       lockAt: formData.get("lockAt"),
       buyIn: formData.get("buyIn") || undefined,
       ownerTeamName: formData.get("ownerTeamName"),
@@ -53,7 +43,17 @@ export async function updatePoolRulesAction(
   if (!userId) redirect("/login");
 
   const raw: Record<string, FormDataEntryValue> = {};
-  for (const key of ["name", "scoringMode", "countBestN", "rosterSize", "lockAt", "buyIn", "status"]) {
+  for (const key of [
+    "name",
+    "scoringMode",
+    "countBestN",
+    "rosterSize",
+    "cutPenaltyMode",
+    "cutPenaltyValue",
+    "lockAt",
+    "buyIn",
+    "status",
+  ]) {
     const value = formData.get(key);
     if (value !== null && value !== "") raw[key] = value;
   }

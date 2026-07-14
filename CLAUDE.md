@@ -85,9 +85,10 @@ chosen. When integrating a live provider (RapidAPI or similar):
    provider can be swapped later without touching pool/scoring code.
 
 Poll live provider on a timer (60-120s during live rounds) rather than
-per-request; cache aggressively. This isn't built yet.
+per-request; cache aggressively. This isn't built yet — right now scores
+only move when the commissioner clicks "Sync scores" (see below).
 
-## Field ingestion — `src/lib/tournaments`
+## Field & score ingestion — `src/lib/tournaments`
 
 `ingestField(tournamentId, provider, db)` pulls a tournament's field from a
 `GolfDataProvider` and upserts `Golfer` rows keyed on
@@ -99,6 +100,13 @@ it. The tournament must already exist and have an `externalId`; ingestion
 throws rather than inventing one. `syncFieldAction` is currently hard-wired to
 `MockGolfDataProvider` — that's the one call site to change when a live
 provider lands.
+
+`ingestScores(tournamentId, provider, db)` is the same pattern for scores:
+upserts `GolferScore` rows keyed on `(golferId, round)` so re-syncing the
+same round updates in place rather than duplicating. A provider row whose
+golfer isn't in the field yet is skipped (not an error) — sync the field
+first. `syncScoresAction` is the commissioner-only entry point, also
+hard-wired to `MockGolfDataProvider` for now.
 
 ## Rosters / picks — `src/lib/roster`
 
@@ -121,6 +129,30 @@ can't cheat):
   duplicate (unique `(poolMemberId, golferId)` → `ConflictError`).
 - The roster page (`/pools/[poolId]/roster`) is member-only; non-members are
   redirected back to the pool page.
+
+## Leaderboard — `src/lib/leaderboard`
+
+`getLeaderboard(poolId, db)` is the join point between rosters, scores, and
+the scoring engine: for each `PoolMember`, it takes each roster golfer's
+*latest* `GolferScore` row (highest `round`; a golfer with no score yet
+gets `toPar: null`, which the engine treats as even par) and runs the
+result through `computeTeamScore`/`computeStandings` from `src/lib/scoring`,
+using `pool.cutPenaltyMode`/`cutPenaltyValue` as the engine's `CutPenalty`.
+Computed on every read, not cached — the `Standing` table in the schema
+stays unused until read load actually justifies adding that cache; don't
+wire it up speculatively.
+
+One display nuance worth preserving if you touch this: under `DROP`
+cut-penalty mode, `computeTeamScore` excludes a cut/WD/DQ golfer from
+`result.contributions` entirely (that's how "drop" scoring works). But the
+leaderboard's per-golfer breakdown is built from the member's full roster,
+not from `contributions` alone — otherwise a dropped pick would silently
+vanish from the UI instead of showing as crossed-out/uncounted with its
+real (unpenalized) score. See `getLeaderboard`'s comment on
+`contributionByGolferId` before changing this.
+
+The leaderboard page (`/pools/[poolId]/leaderboard`) is member-only, same
+gating as the roster page.
 
 ## Pool CRUD + membership — `src/lib/pools`
 
@@ -149,6 +181,12 @@ Rules worth knowing before changing this code:
 - The pool owner can't leave or be removed via `leavePool`/`removeMember`
   — only `deletePool` (which cascades members/rosters/standings via the
   schema's `onDelete: Cascade`) gets rid of an owner's pool.
+- `cutPenaltyMode`/`cutPenaltyValue` feed the scoring engine's
+  `CutPenalty` directly (see "Scoring engine" above). `FIXED` requires a
+  value; that invariant is checked in `updatePoolRules` against the
+  *merged* state, the same way as `countBestN <= rosterSize` — a partial
+  update that only sends `cutPenaltyMode: "FIXED"` must still fail if the
+  existing row has no `cutPenaltyValue`.
 
 ## Server Actions gotcha (Next.js 16 / Turbopack)
 
@@ -177,10 +215,15 @@ the previous one is real and tested, not stubbed:
 1. Repo scaffold, DB schema, auth (dev-auth stub), deploy skeleton (deploy still pending)
 2. Pool CRUD + membership + rules config (done)
 3. Golfer field ingestion + roster/pick page with lock (done, free-pick only)
-4. Scoring engine (done) wired to a mock/static tournament end-to-end (next: the
-   scoring engine and roster data both exist but aren't joined into a leaderboard yet)
-5. Live data adapter (real provider) + polling → real leaderboard
-6. Standings, tiebreakers, commissioner admin tools
+4. Scoring engine wired to a mock/static tournament end-to-end (done — see
+   "Leaderboard" above; scores only move via the commissioner's manual
+   "Sync scores" button, no live polling yet)
+5. Live data adapter (real provider) + polling → real leaderboard (next —
+   the leaderboard itself is done; this milestone is about replacing
+   `MockGolfDataProvider` and adding a polling loop, not building new UI)
+6. Standings, tiebreakers, commissioner admin tools (tiebreaker — best
+   single counted golfer — is already done in `computeStandings`; a
+   dedicated commissioner admin view for score overrides is not built)
 7. Polish: notifications, mobile layout, payments (optional)
 
 ## Conventions

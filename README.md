@@ -54,9 +54,10 @@ src/
     db/                 # Prisma client singletons (app + test)
     scoring/            # Pure, unit-tested scoring engine (countBestN, cut handling, standings)
     data-adapter/        # Provider-agnostic live-score interface + mock provider
-    tournaments/        # Field ingestion (provider field -> Golfer rows)
+    tournaments/        # Field + score ingestion (provider data -> Golfer/GolferScore rows)
     pools/              # Pool CRUD + membership service layer (integration-tested)
     roster/             # Roster/pick service (free pick, lock + rosterSize enforcement)
+    leaderboard/        # Joins rosters + scores, runs the scoring engine, ranks teams
 prisma/
   schema.prisma         # Data model
   seed.ts               # Seeds a mock tournament + golfers for local dev
@@ -80,6 +81,18 @@ pick page (`/pools/[poolId]/roster`) up to the pool's roster size — free
 pick, no draft order. Picks lock once the deadline passes or the pool
 moves past its pre-tournament phase, enforced in the service layer, not
 just the UI.
+
+## Leaderboard
+
+The commissioner clicks "Sync scores" on the pool page to pull current
+scores from the data provider (`ingestScores`) into `GolferScore` rows.
+The leaderboard page (`/pools/[poolId]/leaderboard`) then joins each
+team's roster with their golfers' latest scores, runs it through the
+scoring engine, and shows a ranked table with an expandable per-golfer
+breakdown — cut/WD/DQ golfers show their real score struck through and
+excluded (or penalized, under `FIXED` mode) rather than disappearing.
+There's no auto-refresh or polling yet; the leaderboard reflects whatever
+was last synced.
 
 ## Live score data
 

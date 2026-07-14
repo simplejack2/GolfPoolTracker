@@ -2,9 +2,18 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { syncFieldAction } from "@/app/actions/roster";
 
-export function SyncFieldButton({ poolId }: { poolId: string }) {
+type SyncResult = { error?: string; message?: string };
+
+export function SyncButton({
+  label,
+  pendingLabel,
+  action,
+}: {
+  label: string;
+  pendingLabel: string;
+  action: () => Promise<SyncResult>;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | undefined>();
@@ -19,7 +28,7 @@ export function SyncFieldButton({ poolId }: { poolId: string }) {
           setMessage(undefined);
           setError(undefined);
           startTransition(async () => {
-            const result = await syncFieldAction(poolId);
+            const result = await action();
             if (result.error) setError(result.error);
             else {
               setMessage(result.message);
@@ -29,7 +38,7 @@ export function SyncFieldButton({ poolId }: { poolId: string }) {
         }}
         className="w-fit rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
       >
-        {isPending ? "Syncing..." : "Sync tournament field"}
+        {isPending ? pendingLabel : label}
       </button>
       {message ? <p className="text-sm text-emerald-600 dark:text-emerald-400">{message}</p> : null}
       {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}

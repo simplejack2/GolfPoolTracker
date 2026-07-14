@@ -21,6 +21,41 @@ describe("createPool", () => {
     expect(pool.members).toHaveLength(1);
     expect(pool.members[0].userId).toBe(owner.id);
     expect(pool.members[0].teamName).toBe("Owner Team");
+    expect(pool.cutPenaltyMode).toBe("DROP");
+  });
+
+  it("creates a pool with a FIXED cut penalty when a value is given", async () => {
+    const owner = await makeUser(db, "owner1b@example.com");
+    const tournament = await makeTournament(db);
+
+    const pool = await makePool(db, owner.id, tournament.id, {
+      cutPenaltyMode: "FIXED",
+      cutPenaltyValue: 8,
+    });
+
+    expect(pool.cutPenaltyMode).toBe("FIXED");
+    expect(pool.cutPenaltyValue).toBe(8);
+  });
+
+  it("rejects a FIXED cut penalty with no value", async () => {
+    const owner = await makeUser(db, "owner1c@example.com");
+    const tournament = await makeTournament(db);
+
+    await expect(
+      createPool(
+        owner.id,
+        {
+          name: "Bad Penalty Pool",
+          tournamentId: tournament.id,
+          countBestN: 2,
+          rosterSize: 4,
+          cutPenaltyMode: "FIXED",
+          lockAt: new Date("2026-08-01T12:00:00Z"),
+          ownerTeamName: "Owner",
+        },
+        db,
+      ),
+    ).rejects.toThrow(ValidationError);
   });
 
   it("rejects countBestN greater than rosterSize", async () => {
@@ -92,6 +127,32 @@ describe("updatePoolRules", () => {
     const pool = await makePool(db, owner.id, tournament.id, { countBestN: 2, rosterSize: 4 });
 
     await expect(updatePoolRules(pool.id, owner.id, { rosterSize: 1 }, db)).rejects.toThrow(ValidationError);
+  });
+
+  it("rejects switching to FIXED cut penalty without a value", async () => {
+    const owner = await makeUser(db, "owner5c@example.com");
+    const tournament = await makeTournament(db);
+    const pool = await makePool(db, owner.id, tournament.id); // defaults to DROP
+
+    await expect(
+      updatePoolRules(pool.id, owner.id, { cutPenaltyMode: "FIXED" }, db),
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("allows switching to FIXED cut penalty with a value", async () => {
+    const owner = await makeUser(db, "owner5d@example.com");
+    const tournament = await makeTournament(db);
+    const pool = await makePool(db, owner.id, tournament.id);
+
+    const updated = await updatePoolRules(
+      pool.id,
+      owner.id,
+      { cutPenaltyMode: "FIXED", cutPenaltyValue: 8 },
+      db,
+    );
+
+    expect(updated.cutPenaltyMode).toBe("FIXED");
+    expect(updated.cutPenaltyValue).toBe(8);
   });
 });
 

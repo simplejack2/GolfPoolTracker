@@ -5,11 +5,12 @@ import { prisma } from "@/lib/db/client";
 import { getPool } from "@/lib/pools";
 import { NotFoundError } from "@/lib/errors";
 import { deletePoolAction, leavePoolAction, removeMemberAction } from "@/app/actions/pools";
+import { syncFieldAction, syncScoresAction } from "@/app/actions/roster";
 import { JoinForm } from "./join-form";
 import { TeamNameForm } from "./team-name-form";
 import { EditRulesForm } from "./edit-rules-form";
 import { ConfirmButton } from "./confirm-button";
-import { SyncFieldButton } from "./sync-field-button";
+import { SyncButton } from "./sync-button";
 
 function toDatetimeLocalValue(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -111,12 +112,20 @@ export default async function PoolDetailPage({ params }: { params: Promise<{ poo
         <section className="mb-8 space-y-4">
           <h2 className="text-sm font-semibold">Your team</h2>
           <TeamNameForm poolId={pool.id} currentTeamName={membership.teamName} />
-          <Link
-            href={`/pools/${pool.id}/roster`}
-            className="inline-flex items-center gap-2 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-300"
-          >
-            Your picks ({myPickCount}/{pool.rosterSize})
-          </Link>
+          <div className="flex flex-wrap gap-3">
+            <Link
+              href={`/pools/${pool.id}/roster`}
+              className="inline-flex items-center gap-2 rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            >
+              Your picks ({myPickCount}/{pool.rosterSize})
+            </Link>
+            <Link
+              href={`/pools/${pool.id}/leaderboard`}
+              className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            >
+              Leaderboard
+            </Link>
+          </div>
           {!isOwner ? (
             <ConfirmButton
               action={leavePoolAction.bind(null, pool.id)}
@@ -148,7 +157,16 @@ export default async function PoolDetailPage({ params }: { params: Promise<{ poo
                 : "No golfers ingested yet — sync the field so members can make picks."}
             </p>
           </div>
-          <SyncFieldButton poolId={pool.id} />
+          <SyncButton
+            label="Sync tournament field"
+            pendingLabel="Syncing..."
+            action={syncFieldAction.bind(null, pool.id)}
+          />
+          <SyncButton
+            label="Sync scores"
+            pendingLabel="Syncing..."
+            action={syncScoresAction.bind(null, pool.id)}
+          />
         </section>
       ) : null}
 
@@ -160,6 +178,8 @@ export default async function PoolDetailPage({ params }: { params: Promise<{ poo
             scoringMode: pool.scoringMode,
             countBestN: pool.countBestN,
             rosterSize: pool.rosterSize,
+            cutPenaltyMode: pool.cutPenaltyMode,
+            cutPenaltyValue: pool.cutPenaltyValue,
             lockAt: toDatetimeLocalValue(pool.lockAt),
             buyIn: pool.buyIn ? pool.buyIn.toString() : null,
             status: pool.status,

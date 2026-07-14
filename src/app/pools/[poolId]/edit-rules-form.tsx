@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { updatePoolRulesAction } from "@/app/actions/pools";
 
 interface PoolRules {
@@ -8,6 +8,8 @@ interface PoolRules {
   scoringMode: string;
   countBestN: number;
   rosterSize: number;
+  cutPenaltyMode: string;
+  cutPenaltyValue: number | null;
   lockAt: string; // "YYYY-MM-DDTHH:mm", local time, for a datetime-local input
   buyIn: string | null;
   status: string;
@@ -16,6 +18,9 @@ interface PoolRules {
 export function EditRulesForm({ poolId, pool }: { poolId: string; pool: PoolRules }) {
   const action = updatePoolRulesAction.bind(null, poolId);
   const [error, formAction, isPending] = useActionState(action, undefined);
+  const [cutPenaltyMode, setCutPenaltyMode] = useState<"DROP" | "FIXED">(
+    pool.cutPenaltyMode === "FIXED" ? "FIXED" : "DROP",
+  );
 
   return (
     <form action={formAction} className="space-y-4 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
@@ -48,6 +53,31 @@ export function EditRulesForm({ poolId, pool }: { poolId: string; pool: PoolRule
             <option value="LOCKED">Locked</option>
           </select>
         </Field>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <Field label="Cut/WD penalty">
+          <select
+            name="cutPenaltyMode"
+            value={cutPenaltyMode}
+            onChange={(e) => setCutPenaltyMode(e.target.value as "DROP" | "FIXED")}
+            className={inputClasses}
+          >
+            <option value="DROP">Drop from scoring</option>
+            <option value="FIXED">Add fixed penalty strokes</option>
+          </select>
+        </Field>
+        {cutPenaltyMode === "FIXED" ? (
+          <Field label="Penalty strokes">
+            <input
+              name="cutPenaltyValue"
+              type="number"
+              min={0}
+              defaultValue={pool.cutPenaltyValue ?? 8}
+              className={inputClasses}
+            />
+          </Field>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-2 gap-4">
